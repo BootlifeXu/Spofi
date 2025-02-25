@@ -409,8 +409,7 @@
                 item.classList.add('playing');
             });
             
-            isPlaying = true;
-            playPauseBtn.textContent = '⏸';
+         
         }
 
         // Handle search
@@ -444,12 +443,7 @@
             });
         });
 
-        // Toggle play/pause
-        playPauseBtn.addEventListener('click', () => {
-            if (!currentTrackId) return;
-            
-            isPlaying = !isPlaying;
-            playPauseBtn.textContent = isPlaying ? '⏸' : '▶';
+       
             
             // Note: Actually controlling playback would require Spotify's Web Playback SDK
             // which needs Premium. This is a simplified version.
