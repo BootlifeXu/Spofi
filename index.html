@@ -364,24 +364,32 @@ function displayFavorites(tracks) {
   });
 }
 
-// Play a song
-function playSong(track) {
-  currentTrackId = track.id;
-  // Update player info
-  songTitle.textContent = track.name;
-  songArtist.textContent = track.artists.map(artist => artist.name).join(', ');
-  // Update Spotify iframe
-  spotifyPlayer.src = `https://open.spotify.com/embed/track/${track.id}`;
+// Play a song or playlist
+function playSong(item) {
+  // Check if the item is a track or a playlist
+  if (item.type === 'track') {
+    currentTrackId = item.id;
+    // Update player info for the track
+    songTitle.textContent = item.name;
+    songArtist.textContent = item.artists.map(artist => artist.name).join(', ');
+    spotifyPlayer.src = `https://open.spotify.com/embed/track/${item.id}`;
+  } else if (item.type === 'playlist') {
+    // If it's a playlist, update the iframe source to embed the playlist
+    spotifyPlayer.src = `https://open.spotify.com/embed/playlist/${item.id}`;
+  }
+  
   spotifyPlayer.style.display = 'block';
-  // Remove 'playing' class from all songs
-  document.querySelectorAll('.song-item').forEach(item => {
-    item.classList.remove('playing');
-  });
-  // Add 'playing' class to current song
-  document.querySelectorAll(`.song-item[data-id="${track.id}"]`).forEach(item => {
-    item.classList.add('playing');
-  });
   isPlaying = true;
+  
+  // Remove 'playing' class from all song items
+  document.querySelectorAll('.song-item').forEach(songItem => {
+    songItem.classList.remove('playing');
+  });
+
+  // Add 'playing' class to the current item
+  document.querySelectorAll(`.song-item[data-id="${item.id}"]`).forEach(songItem => {
+    songItem.classList.add('playing');
+  });
 }
 
 // Handle search
@@ -402,7 +410,12 @@ async function performSearch(offset = 0) {
       li.setAttribute('data-id', track.id);
       li.textContent = `${track.name} - ${track.artists.map(artist => artist.name).join(', ')}`;
       li.addEventListener('click', () => {
-        playSong(track);
+        playSong({
+          id: track.id,
+          name: track.name,
+          artists: track.artists,
+          type: 'track' // Set type to 'track'
+        });
       });
       searchResultsList.appendChild(li);
     });
@@ -421,8 +434,12 @@ async function performSearch(offset = 0) {
       li.setAttribute('data-id', playlist.id);
       li.textContent = `${playlist.name} - ${playlist.owner.display_name}`;
       li.addEventListener('click', () => {
-        // You could add functionality to play playlists here
-        alert('Playlists are not yet supported');
+        playSong({
+          id: playlist.id,
+          name: playlist.name,
+          owner: playlist.owner,
+          type: 'playlist' // Set type to 'playlist'
+        });
       });
       searchResultsList.appendChild(li);
     });
