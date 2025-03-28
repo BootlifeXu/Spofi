@@ -452,9 +452,9 @@ async function performSearch(offset = 0) {
 
   // Handle "Next" button state
   if (results.tracks.length === 0 && results.playlists.length === 0) {
-    nextButton.disabled = true;
+    nextButton.disabled = true;  // Disable the button if no results found
   } else {
-    nextButton.disabled = false;
+    nextButton.disabled = false;  // Enable the button if results are found
   }
 }
 
@@ -466,8 +466,8 @@ searchButton.addEventListener('click', () => {
 
 // Next button functionality
 nextButton.addEventListener('click', () => {
-  searchOffset += 10;
-  performSearch(searchOffset);
+  searchOffset += 10;  // Move to the next set of results (next batch)
+  performSearch(searchOffset);  // Call performSearch with updated offset
 });
 
 // Search on Enter key
@@ -489,6 +489,7 @@ window.addEventListener('load', () => {
   // Initially disable the next button until search is performed
   nextButton.disabled = true;
 });
+
     </script> 
   </body>
 </html>
