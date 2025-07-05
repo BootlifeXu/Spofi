@@ -100,7 +100,9 @@
 
       .song-item {
         padding: 10px;
-        cursor: pointer;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
         border-bottom: 1px solid #ddd;
       }
 
@@ -159,9 +161,9 @@
         margin-top: 10px;
         align-self: center;
       }
-      
+
       #login-button {
-          margin-top: 0;
+        margin-top: 0;
       }
 
       #debug-log {
@@ -191,7 +193,6 @@
           <div class="song-title">Song Player</div>
           <div class="song-artist">Login and select a song to play</div>
         </div>
-        <!-- This iframe is now only for playlist embeds -->
         <iframe id="spotify-player" frameborder="0" allowtransparency="true" allow="encrypted-media"></iframe>
       </div>
       <div class="search-results">
@@ -209,7 +210,6 @@
 
     <pre id="debug-log"></pre>
 
-    <!-- 1. ADD THE SPOTIFY WEB PLAYBACK SDK SCRIPT -->
     <script src="https://sdk.scdn.co/spotify-player.js"></script>
 
     <script>
@@ -218,8 +218,8 @@
 
       let accessToken = null;
       let searchOffset = 0;
-      let spotifyPlayerInstance = null; // To hold the SDK player
-      let deviceId = null; // The ID of the virtual player in the browser
+      let spotifyPlayerInstance = null;
+      let deviceId = null;
 
       const searchInput = document.getElementById('search-input');
       const searchButton = document.getElementById('search-button');
@@ -232,84 +232,52 @@
       const loginButton = document.getElementById('login-button');
       const nextButton = document.getElementById('next-button');
       const debugLog = document.getElementById('debug-log');
-      
+
       function updateAuthStatus(message, isError = false) {
         const statusContainer = document.createElement('div');
         statusContainer.textContent = message;
-        if(isError) {
-          statusContainer.className = 'error';
-        }
+        if(isError) statusContainer.className = 'error';
         authStatus.appendChild(statusContainer);
-        
-        if (debugLog) {
-          debugLog.textContent += `[${new Date().toLocaleTimeString()}] ${message}\n`;
-          debugLog.scrollTop = debugLog.scrollHeight;
-        }
-        console.log(message);
+        debugLog.textContent += `[${new Date().toLocaleTimeString()}] ${message}\n`;
+        debugLog.scrollTop = debugLog.scrollHeight;
       }
 
-      // --- NEW: INITIALIZE THE WEB PLAYBACK SDK ---
       function initializeWebPlaybackSDK() {
         if (!accessToken) return;
-
         window.onSpotifyWebPlaybackSDKReady = () => {
           updateAuthStatus('▶️ Web Playback SDK ready.');
           spotifyPlayerInstance = new Spotify.Player({
             name: 'Spofi Web Player',
-            getOAuthToken: cb => { cb(accessToken); },
+            getOAuthToken: cb => cb(accessToken),
             volume: 0.5
-          });
-
-          spotifyPlayerInstance.addListener('initialization_error', ({ message }) => { 
-            updateAuthStatus(`❌ Failed to initialize player: ${message}`, true);
-          });
-          spotifyPlayerInstance.addListener('authentication_error', ({ message }) => {
-            updateAuthStatus(`❌ Auth error: ${message}`, true);
-          });
-          spotifyPlayerInstance.addListener('account_error', ({ message }) => {
-            updateAuthStatus(`❌ Account error: ${message}. Requires a Premium account.`, true);
-          });
-          spotifyPlayerInstance.addListener('playback_error', ({ message }) => {
-            updateAuthStatus(`❌ Playback error: ${message}`, true);
-          });
-
-          spotifyPlayerInstance.addListener('player_state_changed', state => {
-            if (!state) {
-              return;
-            }
-            const currentTrack = state.track_window.current_track;
-            if (currentTrack) {
-                songTitle.textContent = currentTrack.name;
-                songArtist.textContent = currentTrack.artists.map(a => a.name).join(', ');
-                document.querySelectorAll('.song-item').forEach(el => el.classList.remove('playing'));
-                document.querySelectorAll(`.song-item[data-id="${currentTrack.id}"]`).forEach(el => el.classList.add('playing'));
-            }
           });
 
           spotifyPlayerInstance.addListener('ready', ({ device_id }) => {
             deviceId = device_id;
-            updateAuthStatus(`✅ Player ready to use.`);
+            updateAuthStatus('✅ Player ready to use.');
           });
 
           spotifyPlayerInstance.addListener('not_ready', ({ device_id }) => {
-            updateAuthStatus(`⚠️ Player offline.`, true);
+            updateAuthStatus('⚠️ Player offline.', true);
+          });
+
+          spotifyPlayerInstance.addListener('player_state_changed', state => {
+            if (!state) return;
+            const currentTrack = state.track_window.current_track;
+            songTitle.textContent = currentTrack.name;
+            songArtist.textContent = currentTrack.artists.map(a => a.name).join(', ');
+            document.querySelectorAll('.song-item').forEach(el => el.classList.remove('playing'));
+            document.querySelectorAll(`.song-item[data-id="${currentTrack.id}"]`).forEach(el => el.classList.add('playing'));
           });
 
           spotifyPlayerInstance.connect().then(success => {
-            if (success) {
-              updateAuthStatus('✅ Player connected successfully!');
-            }
+            if (success) updateAuthStatus('✅ Player connected successfully!');
           });
         };
       }
 
       function initiateSpotifyAuth() {
-        const scopes = [
-          'user-library-read',
-          'user-read-playback-state',
-          'user-modify-playback-state',
-          'streaming' // This scope is essential for the SDK
-        ];
+        const scopes = ['user-library-read','user-read-playback-state','user-modify-playback-state','streaming'];
         const authUrl = `https://accounts.spotify.com/authorize?client_id=${clientId}&response_type=token&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes.join(' '))}&show_dialog=true`;
         window.location.href = authUrl;
       }
@@ -318,15 +286,13 @@
         const hash = window.location.hash.substring(1);
         const params = new URLSearchParams(hash);
         const token = params.get('access_token');
-        
         let hasToken = false;
+
         if (token) {
           accessToken = token;
           localStorage.setItem('spotify_access_token', token);
           const expiresIn = params.get('expires_in');
-          if (expiresIn) {
-            localStorage.setItem('spotify_token_expiry', Date.now() + expiresIn * 1000);
-          }
+          if (expiresIn) localStorage.setItem('spotify_token_expiry', Date.now() + expiresIn * 1000);
           window.history.replaceState(null, null, window.location.pathname);
           hasToken = true;
         } else {
@@ -337,154 +303,124 @@
             hasToken = true;
           }
         }
-        
+
         if (hasToken) {
-          authStatus.innerHTML = ''; // Clear login button
+          authStatus.innerHTML = '';
           updateAuthStatus('✅ Logged in to Spotify');
           fetchSavedTracks();
           initializeWebPlaybackSDK();
         }
-        return hasToken;
-      }
-      
-      async function searchSpotify(query, offset = 0) {
-        if (!accessToken) {
-          updateAuthStatus('⚠️ Please log in to search.', true);
-          return [];
-        }
-        try {
-          const response = await fetch(`https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track,playlist&limit=10&offset=${offset}`, {
-            headers: { Authorization: `Bearer ${accessToken}` }
-          });
-          if (!response.ok) {
-            if (response.status === 401) {
-              localStorage.clear();
-              authStatus.innerHTML = '';
-              authStatus.appendChild(loginButton);
-              updateAuthStatus('⚠️ Session expired. Please log in again.', true);
-              return [];
-            }
-            throw new Error('Search failed');
-          }
-          const data = await response.json();
-          return { tracks: data.tracks.items, playlists: data.playlists.items };
-        } catch (err) {
-          updateAuthStatus('❌ Search error: ' + err.message, true);
-          return [];
-        }
       }
 
-      async function playSong(item) {
-        if (item.type === 'track') {
-          if (!deviceId) {
-            updateAuthStatus('⚠️ Player not ready. Try interacting with the page or check Premium status.', true);
-            alert('Spotify player is not ready. Please ensure you are a Premium user and the player has connected.');
-            return;
-          }
-          spotifyIframe.style.display = 'none'; // Hide iframe for track playback
-          await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
-            method: 'PUT',
-            body: JSON.stringify({ uris: [item.uri] }),
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${accessToken}`
-            },
-          });
-        } else if (item.type === 'playlist') {
-          spotifyIframe.src = `https://open.spotify.com/embed/playlist/${item.id}`;
-          spotifyIframe.style.display = 'block';
-          songTitle.textContent = item.name;
-          songArtist.textContent = `Playlist by ${item.owner.display_name}`;
+      async function searchSpotify(query, offset = 0) {
+        if (!accessToken) return [];
+        const response = await fetch(`https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=10&offset=${offset}`, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        const data = await response.json();
+        return { tracks: data.tracks.items };
+      }
+
+      async function playSong(track) {
+        if (!deviceId) {
+          alert('Spotify player not ready. Requires Premium.');
+          return;
         }
+        spotifyIframe.style.display = 'none';
+        await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
+          method: 'PUT',
+          body: JSON.stringify({ uris: [track.uri] }),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`
+          },
+        });
       }
 
       async function performSearch(offset = 0) {
         const query = searchInput.value.trim();
         if (!query) return;
-
         const results = await searchSpotify(query, offset);
-        if (offset === 0) {
-            searchResultsList.innerHTML = '';
-        }
-
-        if (results && results.tracks.length === 0 && results.playlists.length === 0) {
-          nextButton.disabled = true;
-        } else {
-          nextButton.disabled = false;
-        }
+        if (offset === 0) searchResultsList.innerHTML = '';
 
         results.tracks.forEach(track => {
           const li = document.createElement('li');
           li.className = 'song-item';
           li.setAttribute('data-id', track.id);
-          li.textContent = `${track.name} - ${track.artists.map(a => a.name).join(', ')}`;
-          li.addEventListener('click', () => playSong({ ...track, type: 'track' }));
-          searchResultsList.appendChild(li);
-        });
 
-        results.playlists.forEach(pl => {
-          const li = document.createElement('li');
-          li.className = 'song-item';
-          li.setAttribute('data-id', pl.id);
-          li.textContent = `Playlist by ${pl.owner.display_name}: ${pl.name}`;
-          li.addEventListener('click', () => playSong({ ...pl, type: 'playlist' }));
+          const span = document.createElement('span');
+          span.textContent = `${track.name} - ${track.artists.map(a => a.name).join(', ')}`;
+          span.style.cursor = 'pointer';
+          span.onclick = () => playSong(track);
+
+          const copyBtn = document.createElement('button');
+          copyBtn.textContent = '📋';
+          copyBtn.title = 'Copy Spotify URL';
+          copyBtn.onclick = () => {
+            navigator.clipboard.writeText(track.external_urls.spotify);
+            updateAuthStatus(`✅ Copied: ${track.external_urls.spotify}`);
+          };
+
+          li.appendChild(span);
+          li.appendChild(copyBtn);
           searchResultsList.appendChild(li);
         });
       }
 
       async function fetchSavedTracks() {
-        if (!accessToken) return;
-        try {
-          const res = await fetch('https://api.spotify.com/v1/me/tracks?limit=20', {
-            headers: { Authorization: `Bearer ${accessToken}` }
-          });
-          const data = await res.json();
-          favoritesList.innerHTML = '';
-          if (!data.items || data.items.length === 0) {
-            const li = document.createElement('li');
-            li.className = 'song-item';
-            li.textContent = 'No saved tracks found';
-            favoritesList.appendChild(li);
-            return;
-          }
-          data.items.forEach(item => {
-            const li = document.createElement('li');
-            li.className = 'song-item';
-            li.setAttribute('data-id', item.track.id);
-            li.textContent = `${item.track.name} - ${item.track.artists.map(a => a.name).join(', ')}`;
-            li.addEventListener('click', () => playSong({ ...item.track, type: 'track' }));
-            favoritesList.appendChild(li);
-          });
-        } catch (err) {
-          updateAuthStatus('❌ Error fetching saved tracks: ' + err.message, true);
-        }
+        const res = await fetch('https://api.spotify.com/v1/me/tracks?limit=20', {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        const data = await res.json();
+        favoritesList.innerHTML = '';
+        data.items.forEach(item => {
+          const track = item.track;
+          const li = document.createElement('li');
+          li.className = 'song-item';
+          li.setAttribute('data-id', track.id);
+
+          const span = document.createElement('span');
+          span.textContent = `${track.name} - ${track.artists.map(a => a.name).join(', ')}`;
+          span.style.cursor = 'pointer';
+          span.onclick = () => playSong(track);
+
+          const copyBtn = document.createElement('button');
+          copyBtn.textContent = '📋';
+          copyBtn.title = 'Copy Spotify URL';
+          copyBtn.onclick = () => {
+            navigator.clipboard.writeText(track.external_urls.spotify);
+            updateAuthStatus(`✅ Copied: ${track.external_urls.spotify}`);
+          };
+
+          li.appendChild(span);
+          li.appendChild(copyBtn);
+          favoritesList.appendChild(li);
+        });
       }
 
-      searchButton.addEventListener('click', () => {
+      searchButton.onclick = () => {
         searchOffset = 0;
         performSearch(0);
-      });
+      };
 
-      nextButton.addEventListener('click', () => {
+      nextButton.onclick = () => {
         searchOffset += 10;
         performSearch(searchOffset);
-      });
+      };
 
-      searchInput.addEventListener('keypress', (e) => {
+      searchInput.addEventListener('keypress', e => {
         if (e.key === 'Enter') {
           searchOffset = 0;
           performSearch(0);
         }
       });
 
-      loginButton.addEventListener('click', () => {
-        initiateSpotifyAuth();
-      });
+      loginButton.onclick = initiateSpotifyAuth;
 
-      window.addEventListener('load', () => {
+      window.onload = () => {
         checkForSpotifyToken();
         nextButton.disabled = true;
-      });
+      };
     </script>
   </body>
 </html>
