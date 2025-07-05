@@ -120,6 +120,7 @@
 
       .playing {
         font-weight: bold;
+        background-color: #e0e0e0;
       }
 
       #auth-status {
@@ -128,6 +129,10 @@
         text-align: right;
         font-size: 14px;
         padding: 5px;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        justify-content: center;
       }
 
       .error {
@@ -154,6 +159,10 @@
         margin-top: 10px;
         align-self: center;
       }
+      
+      #login-button {
+          margin-top: 0;
+      }
 
       #debug-log {
         font-size: 12px;
@@ -163,6 +172,8 @@
         background: #eee;
         padding: 10px;
         border-radius: 5px;
+        max-height: 150px;
+        overflow-y: auto;
       }
     </style>
   </head>
@@ -177,9 +188,10 @@
       </div>
       <div class="music-player">
         <div class="song-info">
-          <div class="song-title">Song player</div>
-          <div class="song-artist">Select a song to play</div>
+          <div class="song-title">Song Player</div>
+          <div class="song-artist">Login and select a song to play</div>
         </div>
+        <!-- This iframe is now only for playlist embeds -->
         <iframe id="spotify-player" frameborder="0" allowtransparency="true" allow="encrypted-media"></iframe>
       </div>
       <div class="search-results">
@@ -197,13 +209,17 @@
 
     <pre id="debug-log"></pre>
 
+    <!-- 1. ADD THE SPOTIFY WEB PLAYBACK SDK SCRIPT -->
+    <script src="https://sdk.scdn.co/spotify-player.js"></script>
+
     <script>
       const clientId = 'cc1434a8593d4c71b9ad56af9b578d98';
       const redirectUri = 'https://bootlifexu.github.io/Spofi';
 
       let accessToken = null;
-      let currentTrackId = null;
       let searchOffset = 0;
+      let spotifyPlayerInstance = null; // To hold the SDK player
+      let deviceId = null; // The ID of the virtual player in the browser
 
       const searchInput = document.getElementById('search-input');
       const searchButton = document.getElementById('search-button');
@@ -211,49 +227,80 @@
       const favoritesList = document.getElementById('favorites-list');
       const songTitle = document.querySelector('.song-title');
       const songArtist = document.querySelector('.song-artist');
-      const spotifyPlayer = document.getElementById('spotify-player');
+      const spotifyIframe = document.getElementById('spotify-player'); 
       const authStatus = document.getElementById('auth-status');
       const loginButton = document.getElementById('login-button');
       const nextButton = document.getElementById('next-button');
       const debugLog = document.getElementById('debug-log');
-
+      
       function updateAuthStatus(message, isError = false) {
-        if (isError) {
-          authStatus.innerHTML = `<span class="error">${message}</span>`;
-        } else {
-          authStatus.innerHTML = message;
+        const statusContainer = document.createElement('div');
+        statusContainer.textContent = message;
+        if(isError) {
+          statusContainer.className = 'error';
         }
+        authStatus.appendChild(statusContainer);
+        
         if (debugLog) {
           debugLog.textContent += `[${new Date().toLocaleTimeString()}] ${message}\n`;
+          debugLog.scrollTop = debugLog.scrollHeight;
         }
         console.log(message);
       }
 
-      function setupIframeErrorLogging() {
-        spotifyPlayer.onerror = () => {
-          console.error('Spotify iframe failed to load.');
-          updateAuthStatus('⚠️ Spotify player failed to load. Try disabling ad blocker.', true);
+      // --- NEW: INITIALIZE THE WEB PLAYBACK SDK ---
+      function initializeWebPlaybackSDK() {
+        if (!accessToken) return;
+
+        window.onSpotifyWebPlaybackSDKReady = () => {
+          updateAuthStatus('▶️ Web Playback SDK ready.');
+          spotifyPlayerInstance = new Spotify.Player({
+            name: 'Spofi Web Player',
+            getOAuthToken: cb => { cb(accessToken); },
+            volume: 0.5
+          });
+
+          spotifyPlayerInstance.addListener('initialization_error', ({ message }) => { 
+            updateAuthStatus(`❌ Failed to initialize player: ${message}`, true);
+          });
+          spotifyPlayerInstance.addListener('authentication_error', ({ message }) => {
+            updateAuthStatus(`❌ Auth error: ${message}`, true);
+          });
+          spotifyPlayerInstance.addListener('account_error', ({ message }) => {
+            updateAuthStatus(`❌ Account error: ${message}. Requires a Premium account.`, true);
+          });
+          spotifyPlayerInstance.addListener('playback_error', ({ message }) => {
+            updateAuthStatus(`❌ Playback error: ${message}`, true);
+          });
+
+          spotifyPlayerInstance.addListener('player_state_changed', state => {
+            if (!state) {
+              return;
+            }
+            const currentTrack = state.track_window.current_track;
+            if (currentTrack) {
+                songTitle.textContent = currentTrack.name;
+                songArtist.textContent = currentTrack.artists.map(a => a.name).join(', ');
+                document.querySelectorAll('.song-item').forEach(el => el.classList.remove('playing'));
+                document.querySelectorAll(`.song-item[data-id="${currentTrack.id}"]`).forEach(el => el.classList.add('playing'));
+            }
+          });
+
+          spotifyPlayerInstance.addListener('ready', ({ device_id }) => {
+            deviceId = device_id;
+            updateAuthStatus(`✅ Player ready to use.`);
+          });
+
+          spotifyPlayerInstance.addListener('not_ready', ({ device_id }) => {
+            updateAuthStatus(`⚠️ Player offline.`, true);
+          });
+
+          spotifyPlayerInstance.connect().then(success => {
+            if (success) {
+              updateAuthStatus('✅ Player connected successfully!');
+            }
+          });
         };
-
-        spotifyPlayer.onload = () => {
-          console.log('Spotify iframe loaded successfully.');
-          updateAuthStatus('🎵 Spotify player loaded.');
-        };
-
-        const observer = new MutationObserver(() => {
-          if (!document.body.contains(spotifyPlayer)) {
-            console.error('Spotify iframe removed from DOM (possibly blocked).');
-            updateAuthStatus('⚠️ Spotify player was removed. Ad blocker may be interfering.', true);
-          }
-        });
-        observer.observe(document.body, { childList: true, subtree: true });
-
-        window.addEventListener('error', (e) => {
-          if (e.target && e.target.tagName === 'IFRAME') {
-            console.error('An iframe failed to load:', e);
-            updateAuthStatus('⚠️ An iframe failed to load. Check ad blockers.', true);
-          }
-        }, true);
       }
 
       function initiateSpotifyAuth() {
@@ -261,7 +308,7 @@
           'user-library-read',
           'user-read-playback-state',
           'user-modify-playback-state',
-          'streaming'
+          'streaming' // This scope is essential for the SDK
         ];
         const authUrl = `https://accounts.spotify.com/authorize?client_id=${clientId}&response_type=token&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes.join(' '))}&show_dialog=true`;
         window.location.href = authUrl;
@@ -271,6 +318,8 @@
         const hash = window.location.hash.substring(1);
         const params = new URLSearchParams(hash);
         const token = params.get('access_token');
+        
+        let hasToken = false;
         if (token) {
           accessToken = token;
           localStorage.setItem('spotify_access_token', token);
@@ -279,25 +328,25 @@
             localStorage.setItem('spotify_token_expiry', Date.now() + expiresIn * 1000);
           }
           window.history.replaceState(null, null, window.location.pathname);
-          updateAuthStatus('✅ Logged in to Spotify');
-          loginButton.style.display = 'none';
-          fetchSavedTracks();
-          return true;
+          hasToken = true;
+        } else {
+          const storedToken = localStorage.getItem('spotify_access_token');
+          const tokenExpiry = localStorage.getItem('spotify_token_expiry');
+          if (storedToken && tokenExpiry && parseInt(tokenExpiry) > Date.now()) {
+            accessToken = storedToken;
+            hasToken = true;
+          }
         }
-
-        const storedToken = localStorage.getItem('spotify_access_token');
-        const tokenExpiry = localStorage.getItem('spotify_token_expiry');
-        if (storedToken && tokenExpiry && parseInt(tokenExpiry) > Date.now()) {
-          accessToken = storedToken;
+        
+        if (hasToken) {
+          authStatus.innerHTML = ''; // Clear login button
           updateAuthStatus('✅ Logged in to Spotify');
-          loginButton.style.display = 'none';
           fetchSavedTracks();
-          return true;
+          initializeWebPlaybackSDK();
         }
-
-        return false;
+        return hasToken;
       }
-
+      
       async function searchSpotify(query, offset = 0) {
         if (!accessToken) {
           updateAuthStatus('⚠️ Please log in to search.', true);
@@ -310,8 +359,9 @@
           if (!response.ok) {
             if (response.status === 401) {
               localStorage.clear();
+              authStatus.innerHTML = '';
+              authStatus.appendChild(loginButton);
               updateAuthStatus('⚠️ Session expired. Please log in again.', true);
-              loginButton.style.display = 'block';
               return [];
             }
             throw new Error('Search failed');
@@ -324,18 +374,28 @@
         }
       }
 
-      function playSong(item) {
+      async function playSong(item) {
         if (item.type === 'track') {
-          songTitle.textContent = item.name;
-          songArtist.textContent = item.artists.map(a => a.name).join(', ');
-          spotifyPlayer.src = `https://open.spotify.com/embed/track/${item.id}`;
+          if (!deviceId) {
+            updateAuthStatus('⚠️ Player not ready. Try interacting with the page or check Premium status.', true);
+            alert('Spotify player is not ready. Please ensure you are a Premium user and the player has connected.');
+            return;
+          }
+          spotifyIframe.style.display = 'none'; // Hide iframe for track playback
+          await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
+            method: 'PUT',
+            body: JSON.stringify({ uris: [item.uri] }),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${accessToken}`
+            },
+          });
         } else if (item.type === 'playlist') {
-          spotifyPlayer.src = `https://open.spotify.com/embed/playlist/${item.id}`;
+          spotifyIframe.src = `https://open.spotify.com/embed/playlist/${item.id}`;
+          spotifyIframe.style.display = 'block';
+          songTitle.textContent = item.name;
+          songArtist.textContent = `Playlist by ${item.owner.display_name}`;
         }
-
-        spotifyPlayer.style.display = 'block';
-        document.querySelectorAll('.song-item').forEach(el => el.classList.remove('playing'));
-        document.querySelectorAll(`.song-item[data-id="${item.id}"]`).forEach(el => el.classList.add('playing'));
       }
 
       async function performSearch(offset = 0) {
@@ -343,9 +403,11 @@
         if (!query) return;
 
         const results = await searchSpotify(query, offset);
-        searchResultsList.innerHTML = '';
+        if (offset === 0) {
+            searchResultsList.innerHTML = '';
+        }
 
-        if (results.tracks.length === 0 && results.playlists.length === 0) {
+        if (results && results.tracks.length === 0 && results.playlists.length === 0) {
           nextButton.disabled = true;
         } else {
           nextButton.disabled = false;
@@ -364,7 +426,7 @@
           const li = document.createElement('li');
           li.className = 'song-item';
           li.setAttribute('data-id', pl.id);
-          li.textContent = `${pl.name} - ${pl.owner.display_name}`;
+          li.textContent = `Playlist by ${pl.owner.display_name}: ${pl.name}`;
           li.addEventListener('click', () => playSong({ ...pl, type: 'playlist' }));
           searchResultsList.appendChild(li);
         });
@@ -373,7 +435,7 @@
       async function fetchSavedTracks() {
         if (!accessToken) return;
         try {
-          const res = await fetch('https://api.spotify.com/v1/me/tracks?limit=10', {
+          const res = await fetch('https://api.spotify.com/v1/me/tracks?limit=20', {
             headers: { Authorization: `Bearer ${accessToken}` }
           });
           const data = await res.json();
@@ -422,9 +484,7 @@
       window.addEventListener('load', () => {
         checkForSpotifyToken();
         nextButton.disabled = true;
-        setupIframeErrorLogging();
       });
     </script>
   </body>
 </html>
-
